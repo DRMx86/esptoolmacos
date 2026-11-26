@@ -6,6 +6,17 @@ struct FlashFile: Identifiable, Equatable {
     var url: URL
 }
 
+/// A way to install esptool that's available on this Mac.
+struct InstallMethod: Equatable {
+    let title: String          // e.g. "Homebrew"
+    let executable: String
+    let args: [String]
+
+    var command: String {
+        ([URL(fileURLWithPath: executable).lastPathComponent] + args).joined(separator: " ")
+    }
+}
+
 struct LogLine: Identifiable, Equatable {
     enum Kind { case info, output, error, success }
     let id: Int
@@ -24,6 +35,8 @@ final class Flasher: ObservableObject {
     @Published private(set) var esptoolPath: String?
     @Published private(set) var esptoolVersion: String = ""
     @Published private(set) var isDetecting = true
+    /// Best available way to install esptool (nil if neither Homebrew, pipx nor pip is usable).
+    @Published private(set) var installMethod: InstallMethod?
 
     @Published var files: [FlashFile] = []
     @Published var flashBaud: Int {
@@ -60,15 +73,19 @@ final class Flasher: ObservableObject {
             let path = Flasher.locateEsptool()
             var version = ""
             var major = 0
+            var installer: InstallMethod?
             if let path = path {
                 let out = Flasher.capture(path, ["version"]) ?? Flasher.capture(path, ["--version"]) ?? ""
                 (version, major) = Flasher.parseVersion(out)
+            } else {
+                installer = Flasher.findInstaller()
             }
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.esptoolPath = path
                 self.esptoolVersion = version
                 self.major = major
+                self.installMethod = installer
                 self.isDetecting = false
             }
         }
@@ -96,12 +113,43 @@ final class Flasher: ObservableObject {
             return hit
         }
 
+        // `pip install --user` puts scripts in ~/Library/Python/<version>/bin
+        let pyRoot = "\(home)/Library/Python"
+        if let versions = try? fm.contentsOfDirectory(atPath: pyRoot) {
+            for version in versions.sorted(by: >) {
+                for name in ["esptool", "esptool.py"] {
+                    let path = "\(pyRoot)/\(version)/bin/\(name)"
+                    if fm.isExecutableFile(atPath: path) { return path }
+                }
+            }
+        }
+
         // Apps launched from Finder don't inherit the shell PATH; ask a login shell.
         for name in ["esptool", "esptool.py"] {
             if let out = capture("/bin/zsh", ["-lc", "command -v \(name)"]) {
                 let line = out.split(separator: "\n").map(String.init).last { $0.hasPrefix("/") }
                 if let line = line, fm.isExecutableFile(atPath: line) { return line }
             }
+        }
+        return nil
+    }
+
+    /// Picks the easiest installer present: Homebrew, then pipx, then pip (needs Command Line Tools).
+    private static func findInstaller() -> InstallMethod? {
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+
+        for brew in ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"] where fm.isExecutableFile(atPath: brew) {
+            return InstallMethod(title: "Homebrew", executable: brew, args: ["install", "esptool"])
+        }
+        for pipx in ["/opt/homebrew/bin/pipx", "/usr/local/bin/pipx", "\(home)/.local/bin/pipx"]
+        where fm.isExecutableFile(atPath: pipx) {
+            return InstallMethod(title: "pipx", executable: pipx, args: ["install", "esptool"])
+        }
+        // /usr/bin/python3 is only a stub that opens an installer dialog without the Command Line Tools.
+        if capture("/usr/bin/xcode-select", ["-p"]) != nil, fm.isExecutableFile(atPath: "/usr/bin/python3") {
+            return InstallMethod(title: "pip", executable: "/usr/bin/python3",
+                                 args: ["-m", "pip", "install", "--user", "esptool"])
         }
         return nil
     }
@@ -199,6 +247,18 @@ final class Flasher: ObservableObject {
         run(["--port", port, "--baud", String(flashBaud), sub("erase_flash")], onFinish: onFinish)
     }
 
+    /// Installs esptool using the best available method, then re-detects it.
+    func installEsptool(onFinish: ((Bool) -> Void)? = nil) {
+        guard !isRunning, let method = installMethod else { return }
+        showsProgress = false
+        append(.info, "Installing esptool with \(method.title). This can take a few minutes…")
+        let label = URL(fileURLWithPath: method.executable).lastPathComponent
+        run(method.args, executable: method.executable, label: label) { [weak self] ok in
+            if ok { self?.detect() }
+            onFinish?(ok)
+        }
+    }
+
     func cancel() {
         guard isRunning else { return }
         cancelled = true
@@ -228,8 +288,9 @@ final class Flasher: ObservableObject {
         onFinish?(false)
     }
 
-    private func run(_ args: [String], onFinish: ((Bool) -> Void)?) {
-        guard let path = esptoolPath else {
+    private func run(_ args: [String], executable: String? = nil, label: String = "esptool",
+                     onFinish: ((Bool) -> Void)?) {
+        guard let path = executable ?? esptoolPath else {
             fail("esptool was not found. Install it (e.g. `brew install esptool`) or choose its location.", onFinish)
             return
         }
@@ -240,7 +301,7 @@ final class Flasher: ObservableObject {
         cancelled = false
         lineBuffer = ""
         lastWasFrame = false
-        append(.info, "$ esptool " + args.map(Flasher.shellQuote).joined(separator: " "))
+        append(.info, "$ \(label) " + args.map(Flasher.shellQuote).joined(separator: " "))
 
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)

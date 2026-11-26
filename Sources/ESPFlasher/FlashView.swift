@@ -225,25 +225,62 @@ struct FlashView: View {
     }
 
     private func missingToolCard(_ p: Palette) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 18))
-                .foregroundColor(p.danger)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("esptool not found")
-                    .font(.system(size: 13, weight: .semibold, design: p.fontDesign))
-                    .foregroundColor(p.text)
-                Text("Install it with `brew install esptool` or `pipx install esptool`, then re-check — or point the app at your copy.")
-                    .font(.system(size: 11, design: p.fontDesign))
-                    .foregroundColor(p.secondaryText)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(p.danger)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("esptool is not installed")
+                        .font(.system(size: 13, weight: .semibold, design: p.fontDesign))
+                        .foregroundColor(p.text)
+                    Text(missingToolMessage)
+                        .font(.system(size: 11, design: p.fontDesign))
+                        .foregroundColor(p.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
             }
-            Spacer()
-            Button("Re-check") { flasher.detect() }
-                .buttonStyle(ThemedButtonStyle(p: p, kind: .secondary))
-            Button("Locate…") { locateTool() }
-                .buttonStyle(ThemedButtonStyle(p: p, kind: .primary))
+
+            HStack(spacing: 10) {
+                if let method = flasher.installMethod {
+                    Button {
+                        flasher.installEsptool()
+                    } label: {
+                        Label(running ? "Installing…" : "Install esptool",
+                              systemImage: running ? "hourglass" : "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(ThemedButtonStyle(p: p, kind: .primary))
+                    .disabled(running)
+                    .help("Runs: \(method.command)")
+                } else {
+                    Button {
+                        if let url = URL(string: "https://brew.sh") { NSWorkspace.shared.open(url) }
+                    } label: {
+                        Label("Get Homebrew", systemImage: "safari")
+                    }
+                    .buttonStyle(ThemedButtonStyle(p: p, kind: .primary))
+                }
+                Button("Re-check") { flasher.detect() }
+                    .buttonStyle(ThemedButtonStyle(p: p, kind: .secondary))
+                    .disabled(running)
+                Button("Locate…") { locateTool() }
+                    .buttonStyle(ThemedButtonStyle(p: p, kind: .secondary))
+                    .disabled(running)
+                if running {
+                    Button("Cancel") { flasher.cancel() }
+                        .buttonStyle(ThemedButtonStyle(p: p, kind: .danger))
+                }
+            }
         }
         .card(p)
+    }
+
+    private var missingToolMessage: String {
+        if let method = flasher.installMethod {
+            return "ESP Flasher needs it to talk to your board. One click installs it with \(method.title) (`\(method.command)`); progress shows in the output below."
+        }
+        return "ESP Flasher needs it to talk to your board. Install Homebrew from brew.sh, then click Re-check — the app can then install esptool for you. Already have esptool somewhere? Use Locate…"
     }
 
     private func progressRow(_ p: Palette) -> some View {

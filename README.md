@@ -14,7 +14,7 @@ The monitor automatically disconnects while flashing on the same port and reconn
 
 - macOS 13 or newer
 - Xcode Command Line Tools (`xcode-select --install`) or Xcode, for Swift 5.9+
-- `esptool` installed, e.g. `brew install esptool` or `pipx install esptool`
+- `esptool` – if it's missing, the app shows a warning with an **Install esptool** button that runs `brew install esptool` (or `pipx` / `pip --user` if Homebrew isn't present). With none of those available it links to [brew.sh](https://brew.sh).
 
 The app looks for esptool in the usual Homebrew / `~/.local/bin` locations and then asks a login shell (`command -v esptool`), so it works when launched from Finder. If yours lives elsewhere, use **Change / Locate…** in the Flash tab. Both esptool v4 (`write_flash`) and v5 (`write-flash`) are supported.
 
@@ -71,4 +71,4 @@ Resources/Info.plist
 scripts/build_app.sh
 ```
 
-To add an app icon, drop an `AppIcon.icns` into `Resources/` and rebuild.
+The app icon lives in `Resources/AppIcon.icns` (source: `Resources/AppIcon.png`); `build_app.sh` copies it into the bundle.
