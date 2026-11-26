@@ -121,7 +121,7 @@ struct SidebarView: View {
                     .frame(width: 34, height: 34)
                     .background(RoundedRectangle(cornerRadius: 9).fill(p.accent))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("ESP Flasher")
+                    Text("DM's ESP32 Flasher")
                         .font(.system(size: 15, weight: .bold, design: p.fontDesign))
                         .foregroundColor(p.text)
                     Text("esptool for macOS")
